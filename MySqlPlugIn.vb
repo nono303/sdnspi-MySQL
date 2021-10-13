@@ -2,34 +2,25 @@
 Imports MySql.Data.MySqlClient
 
 Public Class MySqlPlugIn
-  Implements IGetHostPlugIn
+  Implements ILookupHost
+  Implements ILookupReverse
+  Implements IOptionsUI
 
   Dim cfg As MyConfig
 
-  ' Friend dbConn As MySql.Data.MySqlClient.MySqlConnection
-  'Private LastConnectAttempt As DateTime
-
-#Region "events"
-  Public Event LogLine(ByVal text As String) Implements JHSoftware.SimpleDNS.Plugin.IGetHostPlugIn.LogLine
-  Public Event AsyncError(ByVal ex As System.Exception) Implements JHSoftware.SimpleDNS.Plugin.IGetHostPlugIn.AsyncError
-  Public Event SaveConfig(ByVal config As String) Implements JHSoftware.SimpleDNS.Plugin.IGetHostPlugIn.SaveConfig
-#End Region
+  Public Property Host As IHost Implements IPlugInBase.Host
 
 #Region "not implemented"
-  Public Sub LoadState(ByVal stateXML As String) Implements JHSoftware.SimpleDNS.Plugin.IGetHostPlugIn.LoadState
+  Public Sub LoadState(ByVal stateXML As String) Implements JHSoftware.SimpleDNS.Plugin.IPlugInBase.LoadState
   End Sub
 
-  Public Function SaveState() As String Implements JHSoftware.SimpleDNS.Plugin.IGetHostPlugIn.SaveState
+  Public Function SaveState() As String Implements JHSoftware.SimpleDNS.Plugin.IPlugInBase.SaveState
     Return ""
   End Function
 
-  Public Function InstanceConflict(ByVal configXML1 As String, ByVal configXML2 As String, ByRef errorMsg As String) As Boolean Implements JHSoftware.SimpleDNS.Plugin.IGetHostPlugIn.InstanceConflict
+  Public Function InstanceConflict(ByVal configXML1 As String, ByVal configXML2 As String, ByRef errorMsg As String) As Boolean Implements JHSoftware.SimpleDNS.Plugin.IPlugInBase.InstanceConflict
     Return False
   End Function
-
-  Public Sub LookupTXT(ByVal req As IDNSRequest, ByRef resultText As String, ByRef resultTTL As Integer) Implements JHSoftware.SimpleDNS.Plugin.IGetHostPlugIn.LookupTXT
-    Throw New NotSupportedException
-  End Sub
 
 #End Region
 
@@ -39,76 +30,58 @@ Public Class MySqlPlugIn
     With GetPlugInTypeInfo
       .Name = "MySQL Server"
       .Description = "Fetches host records from a MySQL server"
-      .InfoURL = "http://www.simpledns.com/kb.aspx?kbid=1225"
-      .ConfigFile = False
-      .MultiThreaded = True
+      .InfoURL = "https://simpledns.plus/kb/183/mysql-server-plug-in"
     End With
   End Function
 
-  Public Function GetDNSAskAbout() As JHSoftware.SimpleDNS.Plugin.DNSAskAboutGH Implements JHSoftware.SimpleDNS.Plugin.IGetHostPlugIn.GetDNSAskAbout
-    With GetDNSAskAbout
-      .ForwardIPv4 = True
-      .ForwardIPv6 = True
-      .RevIPv4Addr = IPAddressV4.Any
-      .RevIPv4MaskSize = 0
-      .RevIPv6Addr = IPAddressV6.Any
-      .RevIPv6MaskSize = 0
-    End With
-  End Function
-
-  Public Sub LoadConfig(ByVal config As String, ByVal instanceID As Guid, ByVal dataPath As String, ByRef maxThreads As Integer) Implements JHSoftware.SimpleDNS.Plugin.IGetHostPlugIn.LoadConfig
+  Public Sub LoadConfig(ByVal config As String, ByVal instanceID As Guid, ByVal dataPath As String) Implements JHSoftware.SimpleDNS.Plugin.IPlugInBase.LoadConfig
     cfg = MyConfig.Load(config)
   End Sub
 
-  Public Sub StartService() Implements JHSoftware.SimpleDNS.Plugin.IGetHostPlugIn.StartService
-    'dbConn = New MySqlConnection(cfg.dbConnStr)
-    'LastConnectAttempt = DateTime.UtcNow
-    'dbConn.Open()
-  End Sub
+  Public Function StartService() As Threading.Tasks.Task Implements JHSoftware.SimpleDNS.Plugin.IPlugInBase.StartService
+    Return Threading.Tasks.Task.CompletedTask
+  End Function
 
-  Public Sub StopService() Implements JHSoftware.SimpleDNS.Plugin.IGetHostPlugIn.StopService
+  Public Sub StopService() Implements JHSoftware.SimpleDNS.Plugin.IPlugInBase.StopService
     ' If dbConn IsNot Nothing Then dbConn.Close() : dbConn = Nothing
   End Sub
 
-  Public Sub Lookup(ByVal req As IDNSRequest, ByRef resultIP As IPAddress, ByRef resultTTL As Integer) Implements JHSoftware.SimpleDNS.Plugin.IGetHostPlugIn.Lookup
+  Private Async Function LookupHost(name As DomName, ipv6 As Boolean, req As IDNSRequest) As Threading.Tasks.Task(Of LookupResult(Of SdnsIP)) Implements JHSoftware.SimpleDNS.Plugin.ILookupHost.LookupHost
     Using dbConn = New MySqlConnection(cfg.dbConnStr)
-      dbConn.Open()
-
-      Dim selStr = If(req.QType = 1US, cfg.SelectFwd4, cfg.SelectFwd6)
-      If String.IsNullOrEmpty(selStr) Then resultIP = Nothing : Exit Sub
-      Dim name As String = req.QName.ToString
+      Await dbConn.OpenAsync()
+      Dim selStr = If(ipv6, cfg.SelectFwd6, cfg.SelectFwd4)
+      If String.IsNullOrEmpty(selStr) Then Return Nothing
       Dim cmd = dbConn.CreateCommand
       cmd.CommandText = selStr
-      cmd.Parameters.AddWithValue("?hostname", name)
+      cmd.Parameters.AddWithValue("?hostname", name.ToString())
       If selStr.IndexOf("?clientip") >= 0 Then cmd.Parameters.AddWithValue("?clientip", req.FromIP.ToString)
-      Dim rdr = cmd.ExecuteReader
-      If Not rdr.Read Then rdr.Close() : resultIP = Nothing : Exit Sub
-      resultIP = IPAddress.Parse(CStr(rdr(0)))
-      resultTTL = CInt(rdr(1))
+      Dim rdr = Await cmd.ExecuteReaderAsync
+      If Not Await rdr.ReadAsync Then rdr.Close() : Return Nothing
+      Dim rv = New LookupResult(Of SdnsIP) With {.Value = SdnsIP.Parse(CStr(rdr(0))), .TTL = CInt(rdr(1))}
       rdr.Close()
-      If (resultIP.IPVersion = 4) <> (req.QType = 1US) Then resultIP = Nothing
+      If rv.Value.IsIPv6 <> ipv6 Then Return Nothing
+      Return rv
     End Using
-  End Sub
+  End Function
 
-  Public Sub LookupReverse(ByVal req As IDNSRequest, ByRef resultName As DomainName, ByRef resultTTL As Integer) Implements JHSoftware.SimpleDNS.Plugin.IGetHostPlugIn.LookupReverse
+  Public Async Function LookupReverse(ip As SdnsIP, req As IDNSRequest) As Threading.Tasks.Task(Of LookupResult(Of DomName)) Implements JHSoftware.SimpleDNS.Plugin.ILookupReverse.LookupReverse
     Using dbConn = New MySqlConnection(cfg.dbConnStr)
-      dbConn.Open()
-
-      Dim selStr = If(req.QNameIP.IPVersion = 4, cfg.SelectRev4, cfg.SelectRev6)
-      If String.IsNullOrEmpty(selStr) Then resultName = Nothing : Exit Sub
+      Await dbConn.OpenAsync()
+      Dim selStr = If(ip.IsIPv4, cfg.SelectRev4, cfg.SelectRev6)
+      If String.IsNullOrEmpty(selStr) Then Return Nothing
       Dim cmd = dbConn.CreateCommand
       cmd.CommandText = selStr
       cmd.Parameters.AddWithValue("?ipaddress", req.QNameIP.ToString)
       If selStr.IndexOf("?clientip") >= 0 Then cmd.Parameters.AddWithValue("?clientip", req.FromIP.ToString)
-      Dim rdr = cmd.ExecuteReader
-      If Not rdr.Read Then rdr.Close() : resultName = Nothing : Exit Sub
-      resultName = DomainName.Parse(CStr(rdr(0)))
-      resultTTL = CInt(rdr(1))
+      Dim rdr = Await cmd.ExecuteReaderAsync
+      If Not Await rdr.ReadAsync Then rdr.Close() : Return Nothing
+      Dim rv = New LookupResult(Of DomName) With {.Value = DomName.Parse(CStr(rdr(0))), .TTL = CInt(rdr(1))}
       rdr.Close()
+      Return rv
     End Using
-  End Sub
+  End Function
 
-  Public Function GetOptionsUI(ByVal instanceID As Guid, ByVal dataPath As String) As JHSoftware.SimpleDNS.Plugin.OptionsUI Implements JHSoftware.SimpleDNS.Plugin.IGetHostPlugIn.GetOptionsUI
+  Public Function GetOptionsUI(ByVal instanceID As Guid, ByVal dataPath As String) As JHSoftware.SimpleDNS.Plugin.OptionsUI Implements JHSoftware.SimpleDNS.Plugin.IOptionsUI.GetOptionsUI
     Return New OptionsCtrl
   End Function
 
