@@ -26,11 +26,11 @@ Public Class MySqlPlugIn
 
 #Region "Methods"
 
-  Public Function GetPlugInTypeInfo() As JHSoftware.SimpleDNS.Plugin.IPlugInBase.PlugInTypeInfo Implements JHSoftware.SimpleDNS.Plugin.IPlugInBase.GetPlugInTypeInfo
+  Public Function GetPlugInTypeInfo() As JHSoftware.SimpleDNS.Plugin.IPlugInBase.PlugInTypeInfo Implements JHSoftware.SimpleDNS.Plugin.IPlugInBase.GetTypeInfo
     With GetPlugInTypeInfo
       .Name = "MySQL Server"
       .Description = "Fetches host records from a MySQL server"
-      .InfoURL = "https://simpledns.plus/kb/183/mysql-server-plug-in"
+      .InfoURL = "https://simpledns.plus/plugin-mysql"
     End With
   End Function
 
@@ -46,7 +46,7 @@ Public Class MySqlPlugIn
     ' If dbConn IsNot Nothing Then dbConn.Close() : dbConn = Nothing
   End Sub
 
-  Private Async Function LookupHost(name As DomName, ipv6 As Boolean, req As IDNSRequest) As Threading.Tasks.Task(Of LookupResult(Of SdnsIP)) Implements JHSoftware.SimpleDNS.Plugin.ILookupHost.LookupHost
+  Private Async Function LookupHost(name As DomName, ipv6 As Boolean, req As IRequestContext) As Threading.Tasks.Task(Of LookupResult(Of SdnsIP)) Implements JHSoftware.SimpleDNS.Plugin.ILookupHost.LookupHost
     Using dbConn = New MySqlConnection(cfg.dbConnStr)
       Await dbConn.OpenAsync()
       Dim selStr = If(ipv6, cfg.SelectFwd6, cfg.SelectFwd4)
@@ -64,7 +64,7 @@ Public Class MySqlPlugIn
     End Using
   End Function
 
-  Public Async Function LookupReverse(ip As SdnsIP, req As IDNSRequest) As Threading.Tasks.Task(Of LookupResult(Of DomName)) Implements JHSoftware.SimpleDNS.Plugin.ILookupReverse.LookupReverse
+  Public Async Function LookupReverse(ip As SdnsIP, req As IRequestContext) As Threading.Tasks.Task(Of LookupResult(Of DomName)) Implements JHSoftware.SimpleDNS.Plugin.ILookupReverse.LookupReverse
     Using dbConn = New MySqlConnection(cfg.dbConnStr)
       Await dbConn.OpenAsync()
       Dim selStr = If(ip.IsIPv4, cfg.SelectRev4, cfg.SelectRev6)
