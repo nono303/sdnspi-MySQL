@@ -10,23 +10,13 @@ Public Class MySqlPlugIn
 
   Public Property Host As IHost Implements IPlugInBase.Host
 
-#Region "not implemented"
-  Public Sub LoadState(ByVal stateXML As String) Implements JHSoftware.SimpleDNS.Plugin.IPlugInBase.LoadState
-  End Sub
-
-  Public Function SaveState() As String Implements JHSoftware.SimpleDNS.Plugin.IPlugInBase.SaveState
-    Return ""
-  End Function
-
   Public Function InstanceConflict(ByVal configXML1 As String, ByVal configXML2 As String, ByRef errorMsg As String) As Boolean Implements JHSoftware.SimpleDNS.Plugin.IPlugInBase.InstanceConflict
     Return False
   End Function
 
-#End Region
-
 #Region "Methods"
 
-  Public Function GetPlugInTypeInfo() As JHSoftware.SimpleDNS.Plugin.IPlugInBase.PlugInTypeInfo Implements JHSoftware.SimpleDNS.Plugin.IPlugInBase.GetTypeInfo
+  Public Function GetPlugInTypeInfo() As TypeInfo Implements JHSoftware.SimpleDNS.Plugin.IPlugInBase.GetTypeInfo
     With GetPlugInTypeInfo
       .Name = "MySQL Server"
       .Description = "Fetches host records from a MySQL server"
